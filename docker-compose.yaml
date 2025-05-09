@@ -1,12 +1,29 @@
 services:
   ollama:
-    volumes:
-      - ollama:/root/.ollama
+    image: ollama/ollama:latest
     container_name: ollama
-    pull_policy: always
-    tty: true
-    restart: unless-stopped
-    image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - mcpo-network
+
+  jupyter:
+    image: jupyter/minimal-notebook:latest
+    container_name: jupyter-notebook
+    ports:
+      - "8888:8888"
+    volumes:
+      - jupyter_data:/home/jovyan/work
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=123456
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.49.1-noble
+    container_name: playwright
+    command: npx -y playwright@1.49.1 run-server --port 3000 --host 0.0.0.0
 
   open-webui:
     build:
@@ -14,21 +31,79 @@ services:
       args:
         OLLAMA_BASE_URL: '/ollama'
       dockerfile: Dockerfile
-    image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
+    image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     volumes:
       - open-webui:/app/backend/data
     depends_on:
       - ollama
+      - playwright
     ports:
-      - ${OPEN_WEBUI_PORT-3000}:8080
+      - "3000:8080"
     environment:
       - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
+      - 'WEB_LOADER_ENGINE=playwright'
+      - 'PLAYWRIGHT_WS_URL=ws://playwright:3000'
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
 
+  mcpo:
+    build: ./mcpo-servers
+    container_name: mpco-omni
+    image: musicheardworldwide/mcpo-a1
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./mcpo-servers/config.json:/app/config.json
+      - ./mcpo-servers/servers:/app/servers
+    depends_on:
+      - ollama
+    networks:
+      - mcpo-network
+    user: root
+
+  mcpo-chat:
+    build:
+      context: .
+      dockerfile: mcpo-servers/servers/chat/Dockerfile
+    container_name: sin-chat
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./mcpo-servers/config.json:/app/config.json
+      - ./mcpo-servers/servers/chat:/app/chat
+      - ./mcpo-servers/servers:/app/servers
+    depends_on:
+      - ollama
+    networks:
+      - mcpo-network
+    environment:
+      - MCPO_CONFIG=/app/config.json
+      - PYTHONPATH=/app
+      - PORT=5001
+    user: root
+
+  ollama-init:
+    image: alpine:latest
+    container_name: ollama-init
+    volumes:
+      - ./mcpo-servers/scripts:/scripts
+    user: root
+    depends_on:
+      - ollama
+    networks:
+      - mcpo-network
+    command: >
+      /bin/sh -c "apk add --no-cache curl bash && chmod +x /scripts/init-ollama.sh && /scripts/init-ollama.sh"
+
+networks:
+  mcpo-network:
+    driver: bridge
+
 volumes:
-  ollama: {}
-  open-webui: {}
+  ollama-data:
+    driver: local
+  jupyter_data:
+  open-webui:

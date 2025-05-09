@@ -99,9 +99,9 @@ gpu_count=1
 api_port=11435
 webui_port=3000
 headless=false
-build_image=false
+build_image=true
 kill_compose=false
-enable_playwright=false
+enable_playwright=true
 
 # Function to extract value from the parameter
 extract_value() {
